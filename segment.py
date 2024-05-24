@@ -37,8 +37,9 @@ class AudioEditor:
 
         # Add a progress bar
         style = ttk.Style()
-        style.configure("TProgressbar", thickness=15, troughcolor='#496', background='blue')
-        self.progress = ttk.Progressbar(master, style="TProgressbar", orient="horizontal", length=200, mode="determinate")
+        style.theme_use('clam')  # Change to the 'clam' theme for a more modern look
+        style.configure("Custom.Horizontal.TProgressbar", thickness=10, troughcolor='gray', background='blue', bordercolor='black', lightcolor='white', darkcolor='gray')  # Customize the progress bar style
+        self.progress = ttk.Progressbar(master, style="Custom.Horizontal.TProgressbar", orient="horizontal", length=200, mode="determinate")
         self.progress.grid(row=2, column=2)
 
         # Add a canvas for the plot
@@ -256,7 +257,7 @@ class AudioEditor:
 
         self.figure.clear()  # Clear the current plot
         self.plot = self.figure.add_subplot(111)
-        self.plot.plot(time, data)  # Plot data against time
+        self.plot.plot(time, data,color='gray')  # Plot data against time
 
         # Add a vertical line for the current position
         self.current_position_line = self.plot.axvline(x=0, color='r')
