@@ -11,7 +11,6 @@ import numpy as np
 from scipy.io import wavfile
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
-
 class AudioEditor:
     def __init__(self, master):
         self.master = master
@@ -73,30 +72,39 @@ class AudioEditor:
 
         frequency_label = tk.Label(master, text="Frequency:")
         frequency_label.grid(row=3, column=0)
-        self.change_frequency_scale = tk.Scale(master, from_=1000, to=20000, orient=tk.HORIZONTAL, command=self.change_frequency)
+        self.change_frequency_scale = tk.Scale(master, from_=2000, to=50000, orient=tk.HORIZONTAL, command=self.change_frequency)
+        self.change_frequency_scale.set(44100)  # Set default frequency to 44100 Hz
         self.change_frequency_scale.grid(row=3, column=1)
 
         volume_label = tk.Label(master, text="Volume:")
         volume_label.grid(row=4, column=0)
-        self.change_volume_scale = tk.Scale(master, from_=0.0, to=1.0, resolution=0.01, orient=tk.HORIZONTAL, command=self.change_volume)
+        self.change_volume_scale = tk.Scale(master, from_=0.0, to=100.0, resolution=0.01, orient=tk.HORIZONTAL, command=self.change_volume)
         self.change_volume_scale.grid(row=4, column=1)
 
         self.audio = None
+        self.segment = None
+        self.original_segment = None
+        self.start_time = 0
+        self.end_time = 0
         self.play_thread = None
 
     def open_file(self):
         self.audio_path = filedialog.askopenfilename()
         self.audio = self.load(self.audio_path)
+        self.segment = self.audio
+        self.original_segment = self.segment
+        self.start_time = 0
+        self.end_time = len(self.audio)
         self.plot_waveform(self.audio_path)
 
     def load(self, input_file):
         return AudioSegment.from_file(input_file)
 
     def play_segment(self):
-        if self.audio:
+        if self.segment:
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
             temp_file.close()
-            self.audio.export(temp_file.name, format="mp3")
+            self.segment.export(temp_file.name, format="mp3")
             self.play_mp3(temp_file.name)
             os.unlink(temp_file.name)
 
@@ -114,11 +122,11 @@ class AudioEditor:
         while pygame.mixer.music.get_busy():
             # Update the progress bar
             position = pygame.mixer.music.get_pos()  # This is in milliseconds
-            duration = len(self.audio)  # This is also in milliseconds
+            duration = len(self.segment)  # This is also in milliseconds
             self.progress["value"] = (position / duration) * 100
 
             # Update the current position line
-            self.current_position_line.set_xdata(position / 1000 * self.audio.frame_rate)
+            self.current_position_line.set_xdata(position / 1000 * self.segment.frame_rate)
             self.canvas.draw()
 
             pygame.time.Clock().tick(10)
@@ -147,28 +155,25 @@ class AudioEditor:
         except ValueError:
             print("Invalid speed value.")
             return
-        if speed <= 0:
-            print("Speed value must be greater than zero.")
+        if speed < 0:
+            print("Speed value must be greater than or equal to zero.")
             return
-
-        if self.audio is not None and len(self.audio) > 0:
+        if self.segment is not None and len(self.segment) > 0:
             if speed != 1:
                 try:
-                    # Ensure the audio length is sufficient for processing
-                    if len(self.audio) < 1000:
-                        print("Audio is too short to process.")
+                    # Ensure the segment length is sufficient for processing
+                    if len(self.segment) < 1000:
+                        print("Segment is too short to process.")
                         return
-                    self.audio = self.audio.speedup(playback_speed=speed)
+                    self.segment = self.original_segment.speedup(playback_speed=speed)
                 except Exception as e:
                     print(f"Error changing speed: {e}")
                     return
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp:
-                self.audio.export(temp.name, format="wav")
-                self.plot_waveform(temp.name)  # Update the waveform
-                os.unlink(temp.name)  # Delete the temporary file
+            self.update_waveform()  # Update the waveform without saving
+
         else:
-            print("Audio data is not loaded or is too short.")
+            print("Audio segment is not loaded or is too short.")
 
     def change_frequency(self, event=None):
         try:
@@ -177,53 +182,69 @@ class AudioEditor:
             print("Invalid frequency value.")
             return
 
-        if self.audio is not None and len(self.audio) > 0:
+        if self.segment is not None and len(self.segment) > 0:
             try:
-                self.audio = self.audio.set_frame_rate(frequency)
+                self.segment = self.original_segment.set_frame_rate(frequency)
             except Exception as e:
                 print(f"Error changing frequency: {e}")
                 return
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp:
-                self.audio.export(temp.name, format="wav")
-                self.plot_waveform(temp.name)  # Update the waveform
-                os.unlink(temp.name)  # Delete the temporary file
+            self.update_waveform()  # Update the waveform without saving
+
         else:
-            print("Audio data is not loaded or is too short.")
+            print("Audio segment is not loaded or is too short.")
 
     def change_volume(self, volume):
-        if self.audio is not None and len(self.audio) > 0:
+        if self.segment is not None and len(self.segment) > 0:
             try:
                 volume = float(volume)
-                self.audio = self.audio + volume
+                self.segment = self.original_segment + volume
 
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp:
-                    self.audio.export(temp.name, format="wav")
-                    self.plot_waveform(temp.name)  # Update the waveform
-                    os.unlink(temp.name)  # Delete the temporary file
+                self.update_waveform()  # Update the waveform without saving
+
             except Exception as e:
                 print(f"Error changing volume: {e}")
         else:
-            print("Audio data is not loaded or is too short.")
+            print("Audio segment is not loaded or is too short.")
 
     def merge_dialog(self):
         audio_path_2 = filedialog.askopenfilename()
-        self.merge_audio(audio_path_2)
-    
+        if audio_path_2:
+            self.merge_audio(audio_path_2)
+
     def merge_audio(self, audio_path_2):
         audio_2 = self.load(audio_path_2)
-        self.audio = self.audio + audio_2
+        self.segment = self.segment + audio_2
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp:
-            self.audio.export(temp.name, format="wav")
-            self.plot_waveform(temp.name)  # Update the waveform
-            os.unlink(temp.name)  # Delete the temporary file
+        self.update_waveform()  # Update the waveform without saving
 
-    def convert_to_wav(self, audio_path):
-        audio = AudioSegment.from_file(audio_path)
-        wav_path = audio_path.rsplit('.', 1)[0] + '.wav'
-        audio.export(wav_path, format='wav')
-        return wav_path
+    def update_waveform(self):
+        # Plot the waveform of the current segment
+        sample_rate, data = self.segment.frame_rate, np.array(self.segment.get_array_of_samples())
+        duration = len(data) / sample_rate
+        time = np.linspace(0., duration, len(data)) * 1000  # Convert to milliseconds
+
+        self.figure.clear()  # Clear the current plot
+        self.plot = self.figure.add_subplot(111)
+        self.plot.plot(time, data)  # Plot data against time
+
+        # Add a vertical line for the current position
+        self.current_position_line = self.plot.axvline(x=0, color='r')
+
+        self.canvas.draw()
+
+    def cut_dialog(self):
+        if self.segment is not None:
+            start_time = simpledialog.askinteger("Input", "Enter start time (in milliseconds):", initialvalue=self.start_time)
+            end_time = simpledialog.askinteger("Input", "Enter end time (in milliseconds):", initialvalue=self.end_time)
+
+            if start_time is not None and end_time is not None:
+                start_time = max(0, min(start_time, end_time))
+                end_time = max(start_time, min(end_time, len(self.segment)))
+                self.segment = self.segment[start_time:end_time]
+
+                self.update_waveform()  # Update the waveform without saving
+
 
     def plot_waveform(self, audio_path):
         wav_path = self.convert_to_wav(audio_path)
@@ -242,14 +263,11 @@ class AudioEditor:
 
         self.canvas.draw()
 
-    def cut_dialog(self):
-        start_time = simpledialog.askinteger("Input", "Enter start time (in milliseconds):")
-        end_time = simpledialog.askinteger("Input", "Enter end time (in milliseconds):")
-        self.audio = self.audio[start_time:end_time]
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp:
-            self.audio.export(temp.name, format="wav")
-            self.plot_waveform(temp.name)  # Update the waveform
-            os.unlink(temp.name)  # Delete the temporary file
+    def convert_to_wav(self, audio_path):
+        audio = AudioSegment.from_file(audio_path)
+        wav_path = audio_path.rsplit('.', 1)[0] + '.wav'
+        audio.export(wav_path, format='wav')
+        return wav_path
 
 root = tk.Tk()
 audio_editor = AudioEditor(root)
